@@ -45,7 +45,7 @@ Also you should consider lower casing and punctuation removal along the way.
     """
     def __init__(self, indexer: Indexer):
         self.indexer = indexer
-        #self.features = []
+        self.feature_idxs = []
 
     def get_indexer(self): #subclass from Feature Extractor- defined here for subclass call
         return self.indexer #return Indexer
@@ -67,7 +67,8 @@ Also you should consider lower casing and punctuation removal along the way.
         # Create a Counter with the lowercase tokens: bow_simple
         # will return a count of the occurrence of features in the sentence passed
         bow_simple = Counter(features)
-        #self.features = features #un-Counterized array
+
+        self.feature_idxs.extend(features) # store list of features in bow for sizing later arrays
 
         return bow_simple
 
@@ -79,6 +80,7 @@ class BigramFeatureExtractor(FeatureExtractor):
     """
     def __init__(self, indexer: Indexer):
         self.indexer = indexer
+        self.feature_idxs = []
 
     def get_indexer(self): #subclass from Feature Extractor- defined here for subclass call
         return self.indexer #return Indexer
@@ -88,9 +90,11 @@ class BigramFeatureExtractor(FeatureExtractor):
 
         # Farm the tokens from the given list of words in the sentence
         features = [] #initialize place to store the indexed token features
-        end_index = len(sentence) - 1
         magic = "|" #seperator to make a magic word so bigrams can use existing indexer utility
-        for word_index in range(end_index): #create 'magic words' bigrams and use inexer utility
+        sentence = [word for word in sentence if
+                  word.isalpha()]  # removes punctuation and numerical tokens or anything else non alphabetical
+        end_index = len(sentence) - 1
+        for word_index in range(end_index): #create 'magic words' bigrams and use indexer utility
             featureA = sentence[word_index].lower()
             featureB = sentence[word_index + 1].lower()
             bigram_token = featureA + magic + featureB
@@ -103,6 +107,7 @@ class BigramFeatureExtractor(FeatureExtractor):
         # Create a Counter with the lowercase tokens: bow_bigram
         # will return a count of the occurrence of features in the sentence passed
         bow_bigram = Counter(features)
+        self.feature_idxs.extend(features) # store list of features in bow for sizing later arrays
         return bow_bigram
 
 class BetterFeatureExtractor(FeatureExtractor):
@@ -113,49 +118,37 @@ class BetterFeatureExtractor(FeatureExtractor):
 
     def __init__(self, indexer: Indexer):
         self.indexer = indexer
+        self.feature_idxs = []
 
     def get_indexer(self):  # subclass from Feature Extractor- defined here for subclass call
         return self.indexer  # return Indexer
 
-    def extract_features(self, sentence: List[str], add_to_indexer: bool=False) -> Counter:
-        """
-        Extract features from a sentence represented as a list of words. Includes a flag add_to_indexer to
-        :param sentence: words in the example to featurize
-        :param add_to_indexer: True if we should grow the dimensionality of the featurizer if new features are encountered.
-        At test time, any unseen features should be discarded, but at train time, we probably want to keep growing it.
-        :return: A feature vector. We suggest using a Counter[int], which can encode a sparse feature vector (only
-        a few indices have nonzero value) in essentially the same way as a map. However, you can use whatever data
-        structure you prefer, since this does not interact with the framework code.
+    def extract_features(self, sentence: List[str],
+                         add_to_indexer: bool = False) -> Counter:  # from Feature Extractor- defined here for subclass call
+        # give the count of occurrences (the bag-of-words) based on your grouping of words (from Piazza)
+        # Farm the tokens from the given list of words in the sentence
+        features = []  # initialize place to store the indexed token features
+        # initialize list of all stop words
+        english_stopwords = stopwords.words('english')
+        # Instantiate the WordNetLemmatizer: wordnet_lemmatizer
+        wordnet_lemmatizer = WordNetLemmatizer()
 
-        This features extractor removes all stop words and lemmatizes the words with the idea that it will
-        generate fewer tokens but have higher overall predictive tokens as a result
-        """
+        for token in sentence:
+            if token.isalpha():  # Retain alphabetic words, removes punctuation
+                if token not in english_stopwords: #remove stopwords, skip if a stop_word
+                    lower_token = token.lower()  # Convert the tokens into lowercase
+                    #lemmatized = wordnet_lemmatizer.lemmatize(lower_token) #pares words to base/singular form (dogs -> dog)
+                    # use utils.py function to get index. if add-To_indexer is FALSE, then in test mode and index lookup is used
+                    # if TRUE-  then it will add it if it doesn't already exist or return the existing index
+                    token_index = self.indexer.add_and_get_index(lower_token, add_to_indexer)
+                    features.append(token_index)
 
-        def extract_features(self, sentence: List[str],
-                             add_to_indexer: bool = False) -> Counter:  # from Feature Extractor- defined here for subclass call
-            # give the count of occurrences (the bag-of-words) based on your grouping of words (from Piazza)
-            # Farm the tokens from the given list of words in the sentence
-            features = []  # initialize place to store the indexed token features
-            # initialize list of all stop words
-            english_stopwords = stopwords.words('english')
-            # Instantiate the WordNetLemmatizer: wordnet_lemmatizer
-            wordnet_lemmatizer = WordNetLemmatizer()
+        # Create a Counter with the lowercase tokens: bow_better
+        # will return a count of the occurrence of features in the sentence passed
+        bow_better = Counter(features)
+        self.feature_idxs.extend(features)  # store list of features in bow for sizing later arrays
 
-            for token in sentence:
-                if token.isalpha():  # Retain alphabetic words, removes punctuation
-                    if token not in english_stopwords: #remove stopwords, skip if a stop_word
-                        lower_token = token.lower()  # Convert the tokens into lowercase
-                        lemmatized = wordnet_lemmatizer.lemmatize(lower_token) #pares words to base/singular form (dogs -> dog)
-                        # use utils.py function to get index. if add-To_indexer is FALSE, then in test mode and index lookup is used
-                        # if TRUE-  then it will add it if it doesn't already exist or return the existing index
-                        token_index = self.indexer.add_and_get_index(lemmatized, add_to_indexer)
-                        features.append(token_index)
-
-            # Create a Counter with the lowercase tokens: bow_better
-            # will return a count of the occurrence of features in the sentence passed
-            bow_better = Counter(features)
-
-            return bow_better
+        return bow_better
 
 
 
@@ -187,13 +180,24 @@ class PerceptronClassifier(SentimentClassifier):
     """
     def __init__(self, feature_extractor):
         #init feature extractor
-        self.feature_extractor = feature_extractor
-        self.indexer = feature_extractor.get_indexer
-        #use the indexer function to grab size of indexed features vector
-        self.features_size = self.indexer.__len__()
-        #initialize a weights vector -make it the size of indexed features vector
-        self.weights_vector = np.zeros((self.features_size,), dtype = int) #np.zeros((5,), dtype=int) from help NOTE: maybe try evaluate with float
-        #self.bow_array = np.zeros(self.weights_vector.shape) #initialize an array to un-Counterize the bow to match up to the weights
+        self.feat_extractor = feature_extractor
+        self.indexer = self.feat_extractor.get_indexer
+        #grab size of indexed features vector
+        self.feat_idxs = np.unique(self.feat_extractor.feature_idxs) #unique feature indexes
+        self.weights_vector = np.zeros(self.feat_idxs.shape) #empty array to match unique feature indexes size
+
+    def update_weights(self, label, prediction, alpha, sentence: List[str]):
+
+        bow_dict = self.feat_extractor.extract_features(sentence, add_to_indexer=True)
+        if prediction == label:
+            indicator = 0 #no weight update
+        elif prediction < label: #false positive
+            indicator = 1 #add weight
+        else: # prediction > label, #false negative
+            indicator = -1 #subtract weight
+        for feature_index, feature_count in bow_dict.items():
+            self.weights_vector[feature_index] += indicator * alpha * feature_count
+
 
     def predict(self, sentence: List[str]) -> int:
         """
@@ -203,30 +207,15 @@ class PerceptronClassifier(SentimentClassifier):
         #get dictionary from the Counter of the indexed tokens
         # bow comes back as token_index, count for key ,value
         # set add_to_indexer to FALSE (predict run at testing) so indexer size is not changed
-        bow_dict = self.feature_extractor.extract_features(sentence, add_to_indexer=False)
+        bow_dict = self.feat_extractor.extract_features(sentence, add_to_indexer=False)
+        classifier = 0
+        for feature_index, feature_count in bow_dict.items():
+            classifier +=self.weights_vector[feature_index] * feature_count
 
-
-
-        def __init__(self, feature_extractor): #del
-            self.feature_extractor = feature_extractor #del
-
-            self.indexer = self.feature_extractor.get_indexer() #del
-            self.bag_size = self.indexer.__len__() #del
-
-            self.w = np.zeros((self.bag_size,), dtype=int) #del
-
-        def featurizer(self, sentence: List[str]): #del
-            return self.feature_extractor.extract_features(sentence) #del
-
-        def predict(self, sentence: List[str]) -> int: #del
-            return y_pred
-
-        def update_w(self, y, y_pred, stepsize, sentence: List[str]): #del
-
-
-    def prob(exponent):
-        # print(1 / (1 + math.exp(-exponent))) #del
-        return 1 / (1 + math.exp(-exponent)) #del
+        if classifier > 0.5:
+            return 1 #prediction is 1
+        else:
+            return 0 #prediction is 0
 
 
 class LogisticRegressionClassifier(SentimentClassifier):
@@ -235,8 +224,45 @@ class LogisticRegressionClassifier(SentimentClassifier):
     superclass. Hint: you'll probably need this class to wrap both the weight vector and featurizer -- feel free to
     modify the constructor to pass these in.
     """
-    def __init__(self):
-        raise Exception("Must be implemented")
+
+    def __init__(self, feature_extractor):
+        # init feature extractor
+        self.feat_extractor = feature_extractor
+        self.indexer = self.feat_extractor.get_indexer
+        # grab size of indexed features vector
+        self.feat_idxs = np.unique(self.feat_extractor.feature_idxs)  # unique feature indexes
+        self.weights_vector = np.zeros(self.feat_idxs.shape)  # empty array to match unique feature indexes size
+
+    def update_weights(self, label, prediction, alpha, sentence: List[str]):
+
+        bow_dict = self.feat_extractor.extract_features(sentence, add_to_indexer=False)
+        if prediction == label:
+            indicator = 0  # no weight update
+        elif prediction < label:  # false positive
+            indicator = 1  # add weight
+        else:  # prediction > label, #false negative
+            indicator = -1  # subtract weight
+        for feature_index, feature_count in bow_dict.items():
+            self.weights_vector[feature_index] += indicator * alpha * feature_count
+
+    def predict(self, sentence: List[str]) -> int:
+        """
+        :param sentence: words (List[str]) in the sentence to classify
+        :return: Either 0 for negative class or 1 for positive class
+        """
+        # get dictionary from the Counter of the indexed tokens
+        # bow comes back as token_index, count for key ,value
+        # set add_to_indexer to FALSE (predict run at testing) so indexer size is not changed
+        bow_dict = self.feat_extractor.extract_features(sentence, add_to_indexer=False)
+        prob = 0
+        for feature_index, feature_count in bow_dict.items():
+            prob += self.weights_vector[feature_index] * feature_count
+        classifier = 1/(1 + np.exp(-prob))
+
+        if classifier > 0.5:
+            return 1  # prediction is 1
+        else:
+            return 0  # prediction is 0
 
 
 def train_perceptron(train_exs: List[SentimentExample], feat_extractor: FeatureExtractor) -> PerceptronClassifier:
@@ -249,11 +275,29 @@ def train_perceptron(train_exs: List[SentimentExample], feat_extractor: FeatureE
     randomly ordered. You should make sure to randomly shuffle the data before iterating through it.
     Even better, you could do a random shuffle every epoch.)
     """
-    alpha = 1  #step_size
-    num_epochs = 3
+    alpha = math.e**2  #step_size
+    num_epochs = 10
     random.seed(42) #the answer to life and everything
 
-    raise Exception("Must be implemented")
+
+    for sentence in train_exs: #use train_exs to build feature indexer
+        feat_extractor.extract_features(sentence.words, add_to_indexer=True) #training mode
+
+    perceptron_model = PerceptronClassifier(feat_extractor) #instantiate model
+    for epoch in range(num_epochs + 1):
+        random.shuffle(train_exs)
+        for example in train_exs:
+            sentence = example.words
+            label = example.label
+            prediction = perceptron_model.predict(sentence)
+            if prediction != label:
+                perceptron_model.update_weights(label, prediction, alpha, sentence)
+        #alpha = 1*math.e**epoch #update alpha for next epoch
+
+    return perceptron_model
+
+
+
 
 
 def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor: FeatureExtractor) -> LogisticRegressionClassifier:
@@ -263,7 +307,25 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
     :param feat_extractor: feature extractor to use
     :return: trained LogisticRegressionClassifier model
     """
-    raise Exception("Must be implemented")
+    alpha = 0.15  # step_size
+    num_epochs = 8
+    random.seed(42)  # the answer to life and everything
+
+    for sentence in train_exs:  # use train_exs to build feature indexer
+        feat_extractor.extract_features(sentence.words, add_to_indexer=True)  # training mode
+
+    logistic_model = LogisticRegressionClassifier(feat_extractor)  # instantiate model
+    for epoch in range(num_epochs + 1):
+        random.shuffle(train_exs) #shuffle training examples
+        for example in train_exs:
+            sentence = example.words
+            label = example.label
+            prediction = logistic_model.predict(sentence)
+            if prediction != label:
+                logistic_model.update_weights(label, prediction, alpha, sentence)
+        # alpha = 1*math.e**epoch #update alpha for next epoch
+
+    return logistic_model
 
 
 def train_model(args, train_exs: List[SentimentExample], dev_exs: List[SentimentExample]) -> SentimentClassifier:
