@@ -45,7 +45,8 @@ Also you should consider lower casing and punctuation removal along the way.
     """
     def __init__(self, indexer: Indexer):
         self.indexer = indexer
-        self.feature_idxs = []
+        self.feature_dict = Counter()
+
 
     def get_indexer(self): #subclass from Feature Extractor- defined here for subclass call
         return self.indexer #return Indexer
@@ -67,8 +68,8 @@ Also you should consider lower casing and punctuation removal along the way.
         # Create a Counter with the lowercase tokens: bow_simple
         # will return a count of the occurrence of features in the sentence passed
         bow_simple = Counter(features)
-
-        self.feature_idxs.extend(features) # store list of features in bow for sizing later arrays
+        if add_to_indexer: #skip if in testing mode
+            self.feature_dict.update(bow_simple) #stores compete index/count BOW dictionary
 
         return bow_simple
 
@@ -80,7 +81,8 @@ class BigramFeatureExtractor(FeatureExtractor):
     """
     def __init__(self, indexer: Indexer):
         self.indexer = indexer
-        self.feature_idxs = []
+        self.feature_dict = Counter()
+
 
     def get_indexer(self): #subclass from Feature Extractor- defined here for subclass call
         return self.indexer #return Indexer
@@ -92,12 +94,11 @@ class BigramFeatureExtractor(FeatureExtractor):
         features = [] #initialize place to store the indexed token features
         magic = "|" #seperator to make a magic word so bigrams can use existing indexer utility
         sentence = [word for word in sentence if
-                  word.isalpha()]  # removes punctuation and numerical tokens or anything else non alphabetical
-        end_index = len(sentence) - 1
+                    word.isalpha()]  # removes punctuation and numerical tokens or anything else non alphabetical
+        end_index = len(sentence) - 1 #sub one for use in range- don't want to go beyond end of sentence
         for word_index in range(end_index): #create 'magic words' bigrams and use indexer utility
-            featureA = sentence[word_index].lower()
-            featureB = sentence[word_index + 1].lower()
-            bigram_token = featureA + magic + featureB
+            bigram_token = sentence[word_index].lower() + magic + sentence[word_index + 1].lower()
+
             #use utils.py function to get index. if add-To_indexer is FALSE, then in test mode
             # it will lookup token and return the existing index
             #if TRUE-  then it will add it if it doesn't already exist or return the existing index
@@ -107,7 +108,8 @@ class BigramFeatureExtractor(FeatureExtractor):
         # Create a Counter with the lowercase tokens: bow_bigram
         # will return a count of the occurrence of features in the sentence passed
         bow_bigram = Counter(features)
-        self.feature_idxs.extend(features) # store list of features in bow for sizing later arrays
+        if add_to_indexer: #skip in testing mode
+            self.feature_dict.update(bow_bigram) #stores complete index/count BOW dictionary
         return bow_bigram
 
 class BetterFeatureExtractor(FeatureExtractor):
@@ -118,7 +120,7 @@ class BetterFeatureExtractor(FeatureExtractor):
 
     def __init__(self, indexer: Indexer):
         self.indexer = indexer
-        self.feature_idxs = []
+        self.feature_dict = Counter()
 
     def get_indexer(self):  # subclass from Feature Extractor- defined here for subclass call
         return self.indexer  # return Indexer
@@ -134,6 +136,10 @@ class BetterFeatureExtractor(FeatureExtractor):
         wordnet_lemmatizer = WordNetLemmatizer()
 
         for token in sentence:
+            if token == "n't": #improve for negative contraction
+                token = "negate"
+            if token == "!": #improve for use of emotional exclamation
+                token = "exclaim"
             if token.isalpha():  # Retain alphabetic words, removes punctuation
                 if token not in english_stopwords: #remove stopwords, skip if a stop_word
                     lower_token = token.lower()  # Convert the tokens into lowercase
@@ -146,8 +152,8 @@ class BetterFeatureExtractor(FeatureExtractor):
         # Create a Counter with the lowercase tokens: bow_better
         # will return a count of the occurrence of features in the sentence passed
         bow_better = Counter(features)
-        self.feature_idxs.extend(features)  # store list of features in bow for sizing later arrays
-
+        if add_to_indexer:  # skip in testing mode
+            self.feature_dict.update(bow_better)  # stores compete index/count BOW dictionary
         return bow_better
 
 
@@ -181,22 +187,33 @@ class PerceptronClassifier(SentimentClassifier):
     def __init__(self, feature_extractor):
         #init feature extractor
         self.feat_extractor = feature_extractor
-        self.indexer = self.feat_extractor.get_indexer
+        self.the_indexer = feature_extractor.get_indexer()
         #grab size of indexed features vector
-        self.feat_idxs = np.unique(self.feat_extractor.feature_idxs) #unique feature indexes
-        self.weights_vector = np.zeros(self.feat_idxs.shape) #empty array to match unique feature indexes size
+        #self.feat_idxs = np.max(self.feat_extractor.feature_idxs) #unique feature indexes
+        #need a way to know max index for shaping weights vector
+        self.weights_vector = np.random.uniform(-1, 1, max(self.feat_extractor.feature_dict, key = int) + 1)
+        #np.random.rand(max(self.feat_extractor.feature_dict, key = int) + 1) #+1 index not starting at 0
+        # self.weights_vector = np.zeros(self.feat_idxs.shape) #empty array to match unique feature indexes size
 
     def update_weights(self, label, prediction, alpha, sentence: List[str]):
 
-        bow_dict = self.feat_extractor.extract_features(sentence, add_to_indexer=True)
+        #bow_dict = self.feat_extractor.extract_features(sentence, add_to_indexer=True)
         if prediction == label:
             indicator = 0 #no weight update
-        elif prediction < label: #false positive
+        elif prediction < label: #false negative
             indicator = 1 #add weight
-        else: # prediction > label, #false negative
+        else: # prediction > label, #false positive
             indicator = -1 #subtract weight
-        for feature_index, feature_count in bow_dict.items():
-            self.weights_vector[feature_index] += indicator * alpha * feature_count
+        word = 0 #DEBUG
+        bow_sent = self.feat_extractor.extract_features(sentence, add_to_indexer=False)
+        for word_idx in bow_sent:
+            word +=1 #DEBUG
+            if self.the_indexer.get_object(word_idx): #returns None if not in index
+                self.weights_vector[word_idx] += indicator * alpha
+            #don't update weight vector if feature index is not in index
+            else: #DEBUG
+                print('Not found in Feature index: ', word, " in ", sentence)
+
 
 
     def predict(self, sentence: List[str]) -> int:
@@ -207,12 +224,21 @@ class PerceptronClassifier(SentimentClassifier):
         #get dictionary from the Counter of the indexed tokens
         # bow comes back as token_index, count for key ,value
         # set add_to_indexer to FALSE (predict run at testing) so indexer size is not changed
-        bow_dict = self.feat_extractor.extract_features(sentence, add_to_indexer=False)
-        classifier = 0
-        for feature_index, feature_count in bow_dict.items():
-            classifier +=self.weights_vector[feature_index] * feature_count
+        #bow_dict = self.feat_extractor.extract_features(sentence, add_to_indexer=False)
 
-        if classifier > 0.5:
+        classifier = 0
+
+        bow_sent = self.feat_extractor.extract_features(sentence, add_to_indexer=False)
+        for word_idx in bow_sent:
+            if self.the_indexer.get_object(word_idx): #returns None if not in index
+                feat_weight = self.weights_vector[word_idx]
+            #don't update weight vector if feature index is not in index
+            else: #DEBUG
+                feat_weight = 0
+            classifier += feat_weight
+
+
+        if classifier > 0:
             return 1 #prediction is 1
         else:
             return 0 #prediction is 0
@@ -275,7 +301,7 @@ def train_perceptron(train_exs: List[SentimentExample], feat_extractor: FeatureE
     randomly ordered. You should make sure to randomly shuffle the data before iterating through it.
     Even better, you could do a random shuffle every epoch.)
     """
-    alpha = math.e**2  #step_size
+    alpha = math.e**0  #step_size
     num_epochs = 10
     random.seed(42) #the answer to life and everything
 
@@ -284,6 +310,7 @@ def train_perceptron(train_exs: List[SentimentExample], feat_extractor: FeatureE
         feat_extractor.extract_features(sentence.words, add_to_indexer=True) #training mode
 
     perceptron_model = PerceptronClassifier(feat_extractor) #instantiate model
+
     for epoch in range(num_epochs + 1):
         random.shuffle(train_exs)
         for example in train_exs:
@@ -311,8 +338,12 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
     num_epochs = 8
     random.seed(42)  # the answer to life and everything
 
+
+
     for sentence in train_exs:  # use train_exs to build feature indexer
-        feat_extractor.extract_features(sentence.words, add_to_indexer=True)  # training mode
+        bow_sent = feat_extractor.extract_features(sentence.words, add_to_indexer=True)  # training mode
+
+
 
     logistic_model = LogisticRegressionClassifier(feat_extractor)  # instantiate model
     for epoch in range(num_epochs + 1):
@@ -362,4 +393,7 @@ def train_model(args, train_exs: List[SentimentExample], dev_exs: List[Sentiment
         model = train_logistic_regression(train_exs, feat_extractor)
     else:
         raise Exception("Pass in TRIVIAL, PERCEPTRON, or LR to run the appropriate system")
+
+
     return model
+
