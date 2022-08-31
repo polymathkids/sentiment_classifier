@@ -136,10 +136,10 @@ class BetterFeatureExtractor(FeatureExtractor):
         wordnet_lemmatizer = WordNetLemmatizer()
 
         for token in sentence:
-            if token == "n't": #improve for negative contraction
-                token = "negate"
+            if token == "n't": #improve for negative contraction, equivalent
+                token = "not"
             if token == "!": #improve for use of emotional exclamation
-                token = "exclaim"
+                token = "exclamation"
             if token.isalpha():  # Retain alphabetic words, removes punctuation
                 if token not in english_stopwords: #remove stopwords, skip if a stop_word
                     lower_token = token.lower()  # Convert the tokens into lowercase
@@ -188,8 +188,6 @@ class PerceptronClassifier(SentimentClassifier):
         #init feature extractor
         self.feat_extractor = feature_extractor
         self.the_indexer = feature_extractor.get_indexer()
-        #grab size of indexed features vector
-        #self.feat_idxs = np.max(self.feat_extractor.feature_idxs) #unique feature indexes
         #need a way to know max index for shaping weights vector
         self.weights_vector = np.random.uniform(-1, 1, max(self.feat_extractor.feature_dict, key = int) + 1)
         #np.random.rand(max(self.feat_extractor.feature_dict, key = int) + 1) #+1 index not starting at 0
@@ -254,22 +252,29 @@ class LogisticRegressionClassifier(SentimentClassifier):
     def __init__(self, feature_extractor):
         # init feature extractor
         self.feat_extractor = feature_extractor
-        self.indexer = self.feat_extractor.get_indexer
         # grab size of indexed features vector
-        self.feat_idxs = np.unique(self.feat_extractor.feature_idxs)  # unique feature indexes
-        self.weights_vector = np.zeros(self.feat_idxs.shape)  # empty array to match unique feature indexes size
+        self.the_indexer = feature_extractor.get_indexer()
+        self.prediction = 0
+        #need a way to know max index for shaping weights vector
+        self.weights_vector = np.random.uniform(-1, 1, max(self.feat_extractor.feature_dict, key = int) + 1)
 
     def update_weights(self, label, prediction, alpha, sentence: List[str]):
+        #weight = weight + alpha × (y − prediction) × prediction × (1 − prediction) × x
 
-        bow_dict = self.feat_extractor.extract_features(sentence, add_to_indexer=False)
-        if prediction == label:
-            indicator = 0  # no weight update
-        elif prediction < label:  # false positive
-            indicator = 1  # add weight
-        else:  # prediction > label, #false negative
-            indicator = -1  # subtract weight
-        for feature_index, feature_count in bow_dict.items():
-            self.weights_vector[feature_index] += indicator * alpha * feature_count
+        bow_sent = self.feat_extractor.extract_features(sentence, add_to_indexer=False)
+        for word_idx in bow_sent:
+           if self.the_indexer.index_of(word_idx): #returns None if not in index
+                if label == 1: #false negative, increase weights so next time, sentiment is classified more positively
+                    pred = math.e**(self.weights_vector[word_idx])/(1+(math.e**(self.weights_vector[word_idx]))) # prediction(y_hat)
+                    self.weights_vector[word_idx] += alpha * (1-pred) # can mutiply by word appearance count
+
+                else: #false positive, decrease weights
+                    # P(-1) = 1-P(+1)
+                    pred = 1/(1+(math.e**(self.weights_vector[word_idx]))) #prediction (y_hat)
+                    self.weights_vector[word_idx] -= alpha * (1-pred) #self.prediction = prob(-1)
+
+            #don't update weight vector if feature index is not in index
+
 
     def predict(self, sentence: List[str]) -> int:
         """
@@ -279,13 +284,14 @@ class LogisticRegressionClassifier(SentimentClassifier):
         # get dictionary from the Counter of the indexed tokens
         # bow comes back as token_index, count for key ,value
         # set add_to_indexer to FALSE (predict run at testing) so indexer size is not changed
+        #p(class = 0) = 1 / (1 + e−(weight(i)*x(i))
         bow_dict = self.feat_extractor.extract_features(sentence, add_to_indexer=False)
-        prob = 0
+        total_weight = 0
         for feature_index, feature_count in bow_dict.items():
-            prob += self.weights_vector[feature_index] * feature_count
-        classifier = 1/(1 + np.exp(-prob))
+            total_weight += self.weights_vector[feature_index] * feature_count
+        self.prediction = (math.e**(total_weight))/(1 + math.e**(total_weight)) #determines prob of feature being classified as 1
 
-        if classifier > 0.5:
+        if self.prediction > 0.5:
             return 1  # prediction is 1
         else:
             return 0  # prediction is 0
@@ -334,16 +340,12 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
     :param feat_extractor: feature extractor to use
     :return: trained LogisticRegressionClassifier model
     """
-    alpha = 0.15  # step_size
-    num_epochs = 8
+    alpha = 0.55  # step_size
+    num_epochs = 12
     random.seed(42)  # the answer to life and everything
 
-
-
     for sentence in train_exs:  # use train_exs to build feature indexer
-        bow_sent = feat_extractor.extract_features(sentence.words, add_to_indexer=True)  # training mode
-
-
+        feat_extractor.extract_features(sentence.words, add_to_indexer=True)  # training mode
 
     logistic_model = LogisticRegressionClassifier(feat_extractor)  # instantiate model
     for epoch in range(num_epochs + 1):
