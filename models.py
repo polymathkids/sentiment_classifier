@@ -4,7 +4,7 @@ import numpy as np
 import random
 import math
 import spacy
-from nltk.stem import WordNetLemmatizer
+#from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
 
 from collections import Counter
@@ -92,9 +92,11 @@ class BigramFeatureExtractor(FeatureExtractor):
 
         # Farm the tokens from the given list of words in the sentence
         features = [] #initialize place to store the indexed token features
+        english_stopwords = stopwords.words('english')
         magic = "|" #seperator to make a magic word so bigrams can use existing indexer utility
         sentence = [word for word in sentence if
                     word.isalpha()]  # removes punctuation and numerical tokens or anything else non alphabetical
+        sentence = [word for word in sentence if word in english_stopwords]  # take out stopwords
         end_index = len(sentence) - 1 #sub one for use in range- don't want to go beyond end of sentence
         for word_index in range(end_index): #create 'magic words' bigrams and use indexer utility
             bigram_token = sentence[word_index].lower() + magic + sentence[word_index + 1].lower()
@@ -129,21 +131,40 @@ class BetterFeatureExtractor(FeatureExtractor):
                          add_to_indexer: bool = False) -> Counter:  # from Feature Extractor- defined here for subclass call
         # give the count of occurrences (the bag-of-words) based on your grouping of words (from Piazza)
         # Farm the tokens from the given list of words in the sentence
+        # Farm the tokens from the given list of words in the sentence
         features = []  # initialize place to store the indexed token features
         # initialize list of all stop words
         english_stopwords = stopwords.words('english')
+
+        #Set up Bigram Token Features to add in with Unigram features
+        magic = "|"  # seperator to make a magic word so bigrams can use existing indexer utility
+        sentence_BG = [word for word in sentence if
+                    word.isalpha()]  # removes punctuation and numerical tokens or anything else non alphabetical
+        sentence_BG = [word for word in sentence_BG if word not in english_stopwords] #take out stopwords
+        end_index = len(sentence_BG) - 1  # sub one for use in range- don't want to go beyond end of sentence
+        for word_index in range(end_index):  # create 'magic words' bigrams and use indexer utility
+            bigram_token = sentence_BG[word_index].lower() + magic + sentence_BG[word_index + 1].lower()
+
+            # use utils.py function to get index. if add-To_indexer is FALSE, then in test mode
+            # it will lookup token and return the existing index
+            # if TRUE-  then it will add it if it doesn't already exist or return the existing index
+            bigram_index = self.indexer.add_and_get_index(bigram_token, add_to_indexer)
+            features.append(bigram_index)
+
+        #Unigram features- add to bigram feature
+
         # Instantiate the WordNetLemmatizer: wordnet_lemmatizer
-        wordnet_lemmatizer = WordNetLemmatizer()
+       # wordnet_lemmatizer = WordNetLemmatizer()
 
         for token in sentence:
-            if token == "n't": #improve for negative contraction, equivalent
-                token = "not"
-            if token == "!": #improve for use of emotional exclamation
+            if token == "n't" or token == 'not' or token == 'no': #improve for negative contraction, equivalent, evade stopwords list
+                token = "negate"
+            if token == '!': #improve for use of emotional exclamation
                 token = "exclamation"
             if token.isalpha():  # Retain alphabetic words, removes punctuation
                 if token not in english_stopwords: #remove stopwords, skip if a stop_word
                     lower_token = token.lower()  # Convert the tokens into lowercase
-                    #lemmatized = wordnet_lemmatizer.lemmatize(lower_token) #pares words to base/singular form (dogs -> dog)
+                    #lower_token = wordnet_lemmatizer.lemmatize(lower_token) #pares words to base/singular form (dogs -> dog)
                     # use utils.py function to get index. if add-To_indexer is FALSE, then in test mode and index lookup is used
                     # if TRUE-  then it will add it if it doesn't already exist or return the existing index
                     token_index = self.indexer.add_and_get_index(lower_token, add_to_indexer)
@@ -153,7 +174,7 @@ class BetterFeatureExtractor(FeatureExtractor):
         # will return a count of the occurrence of features in the sentence passed
         bow_better = Counter(features)
         if add_to_indexer:  # skip in testing mode
-            self.feature_dict.update(bow_better)  # stores compete index/count BOW dictionary
+            self.feature_dict.update(bow_better)  # stores complete index/count BOW dictionary
         return bow_better
 
 
@@ -202,15 +223,15 @@ class PerceptronClassifier(SentimentClassifier):
             indicator = 1 #add weight
         else: # prediction > label, #false positive
             indicator = -1 #subtract weight
-        word = 0 #DEBUG
+        #word = 0 #DEBUG
         bow_sent = self.feat_extractor.extract_features(sentence, add_to_indexer=False)
         for word_idx in bow_sent:
-            word +=1 #DEBUG
+            #word +=1 #DEBUG
             if self.the_indexer.get_object(word_idx): #returns None if not in index
                 self.weights_vector[word_idx] += indicator * alpha
             #don't update weight vector if feature index is not in index
-            else: #DEBUG
-                print('Not found in Feature index: ', word, " in ", sentence)
+            #else: #DEBUG
+                #print('Not found in Feature index: ', word, " in ", sentence)
 
 
 
@@ -256,24 +277,32 @@ class LogisticRegressionClassifier(SentimentClassifier):
         self.the_indexer = feature_extractor.get_indexer()
         self.prediction = 0
         #need a way to know max index for shaping weights vector
-        self.weights_vector = np.random.uniform(-1, 1, max(self.feat_extractor.feature_dict, key = int) + 1)
+        #self.weights_vector = np.random.uniform(-1, 1, max(self.feat_extractor.feature_dict, key = int) + 1)
+        self.weights_vector = np.zeros(max(self.feat_extractor.feature_dict, key = int) + 1)
+        self.weight_dot_feat = 0
+        self.feat_array = []
+        self.weight_array = []
+        self.bow_dict = {}
 
     def update_weights(self, label, prediction, alpha, sentence: List[str]):
-        #weight = weight + alpha × (y − prediction) × prediction × (1 − prediction) × x
-
-        bow_sent = self.feat_extractor.extract_features(sentence, add_to_indexer=False)
-        for word_idx in bow_sent:
-           if self.the_indexer.index_of(word_idx): #returns None if not in index
-                if label == 1: #false negative, increase weights so next time, sentiment is classified more positively
-                    pred = math.e**(self.weights_vector[word_idx])/(1+(math.e**(self.weights_vector[word_idx]))) # prediction(y_hat)
-                    self.weights_vector[word_idx] += alpha * (1-pred) # can mutiply by word appearance count
-
-                else: #false positive, decrease weights
-                    # P(-1) = 1-P(+1)
-                    pred = 1/(1+(math.e**(self.weights_vector[word_idx]))) #prediction (y_hat)
-                    self.weights_vector[word_idx] -= alpha * (1-pred) #self.prediction = prob(-1)
-
-            #don't update weight vector if feature index is not in index
+        #bow_sent = self.feat_extractor.extract_features(sentence, add_to_indexer=False)
+        if label == 1:
+            self.weight_array = self.weight_array + alpha * self.feat_array * (1-self.prediction)
+            i = 0
+            for word_idx in self.bow_dict:
+                if self.the_indexer.index_of(word_idx): #returns None if not in index
+                    #if label == 1: #false negative, increase weights so next time, sentiment is classified more positively
+                    #pred = math.e**(self.weights_vector[word_idx])/(1+(math.e**(self.weights_vector[word_idx]))) # prediction(y_hat)
+                    #self.weights_vector[word_idx] += alpha * (1-self.prediction) # can mutiply by word appearance count
+                    self.weights_vector[word_idx] = self.weight_array[i]
+                    i += 1
+        elif label == 0:
+            self.weight_array = self.weight_array - alpha * self.feat_array * (self.prediction)
+            i = 0
+            for word_idx in self.bow_dict:
+                if self.the_indexer.index_of(word_idx):  # returns None if not in index
+                    self.weights_vector[word_idx] = self.weight_array[i]
+                    i += 1
 
 
     def predict(self, sentence: List[str]) -> int:
@@ -285,16 +314,27 @@ class LogisticRegressionClassifier(SentimentClassifier):
         # bow comes back as token_index, count for key ,value
         # set add_to_indexer to FALSE (predict run at testing) so indexer size is not changed
         #p(class = 0) = 1 / (1 + e−(weight(i)*x(i))
-        bow_dict = self.feat_extractor.extract_features(sentence, add_to_indexer=False)
-        total_weight = 0
-        for feature_index, feature_count in bow_dict.items():
-            total_weight += self.weights_vector[feature_index] * feature_count
-        self.prediction = (math.e**(total_weight))/(1 + math.e**(total_weight)) #determines prob of feature being classified as 1
+        self.bow_dict = self.feat_extractor.extract_features(sentence, add_to_indexer=False)
+        self.weight_dot_feat = 0
+        self.feat_array = np.zeros(len(self.bow_dict))
+        self.weight_array = np.zeros(len(self.bow_dict))
+        i=0
+        total_features = sum(self.bow_dict.values())
+        for feature_index, feature_count in self.bow_dict.items():
+            #self.weight_dot_feat += self.weights_vector[feature_index] * feature_count
+            #self.feat_array[i] = feature_count
+            self.feat_array[i] = feature_count/total_features
+            self.weight_array[i] = self.weights_vector[feature_index]
+            i += 1
+        self.weight_dot_feat = np.dot(self.weight_array, self.feat_array)
+        self.prediction = (math.e**(self.weight_dot_feat))/(1 + math.e**(self.weight_dot_feat)) #determines prob of feature being classified as 1
 
         if self.prediction > 0.5:
             return 1  # prediction is 1
         else:
             return 0  # prediction is 0
+
+
 
 
 def train_perceptron(train_exs: List[SentimentExample], feat_extractor: FeatureExtractor) -> PerceptronClassifier:
@@ -307,8 +347,8 @@ def train_perceptron(train_exs: List[SentimentExample], feat_extractor: FeatureE
     randomly ordered. You should make sure to randomly shuffle the data before iterating through it.
     Even better, you could do a random shuffle every epoch.)
     """
-    alpha = math.e**0  #step_size
-    num_epochs = 10
+    alpha = 1  #step_size/ learning rate
+    num_epochs = 40
     random.seed(42) #the answer to life and everything
 
 
@@ -325,9 +365,11 @@ def train_perceptron(train_exs: List[SentimentExample], feat_extractor: FeatureE
             prediction = perceptron_model.predict(sentence)
             if prediction != label:
                 perceptron_model.update_weights(label, prediction, alpha, sentence)
-        #alpha = 1*math.e**epoch #update alpha for next epoch
+        alpha += math.e**(-(epoch+1)//4) #update alpha for next epoch
+        #print("Alpha = ", alpha)  # debug
 
     return perceptron_model
+
 
 
 
@@ -340,8 +382,8 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
     :param feat_extractor: feature extractor to use
     :return: trained LogisticRegressionClassifier model
     """
-    alpha = 0.55  # step_size
-    num_epochs = 12
+    alpha = 1  # step_size
+    num_epochs = 40
     random.seed(42)  # the answer to life and everything
 
     for sentence in train_exs:  # use train_exs to build feature indexer
@@ -356,7 +398,12 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
             prediction = logistic_model.predict(sentence)
             if prediction != label:
                 logistic_model.update_weights(label, prediction, alpha, sentence)
-        # alpha = 1*math.e**epoch #update alpha for next epoch
+        i = 2
+        if epoch % 4 == 0 and epoch > 0: #check remainder- only update every 10 epochs
+        #alpha = 1/(alpha**(1/(epoch+1))) #update alpha for next epoch
+            alpha = alpha/i #get smaller every 5th epoch
+            i += 1
+            #print("Alpha = ", alpha, " for epoch ", epoch) #debug
 
     return logistic_model
 
