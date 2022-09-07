@@ -56,11 +56,14 @@ Also you should consider lower casing and punctuation removal along the way.
 
         # Farm the tokens from the given list of words in the sentence
         features = [] #initialize place to store the indexed token features
+        my_stop_words = ['film', 'films', 'movie', 'movies', 'cinema', 'theatre', 'director']
+        #sentence = [word for word in sentence if word.isalpha()]  # removes punctuation and numerical tokens or anything else non alphabetical
         for token in sentence:
-            if token.isalpha(): # Retain alphabetic words
-                lower_token = token.lower() # Convert the tokens into lowercase
+
+            lower_token = token.lower() # Convert the tokens into lowercase
                 #use utils.py function to get index. if add-To_indexer is FALSE, then in test mode and index lookup is used
                 #if TRUE-  then it will add it if it doesn't already exist or return the existing index
+            if lower_token not in my_stop_words:
                 token_index = self.indexer.add_and_get_index(lower_token, add_to_indexer)
                 features.append(token_index)
 
@@ -135,12 +138,14 @@ class BetterFeatureExtractor(FeatureExtractor):
         features = []  # initialize place to store the indexed token features
         # initialize list of all stop words
         english_stopwords = stopwords.words('english')
+        added_stopwords = ['film', 'films', 'movie', 'movies', 'cinema', 'theatre', 'director']
 
         #Set up Bigram Token Features to add in with Unigram features
         magic = "|"  # seperator to make a magic word so bigrams can use existing indexer utility
-        sentence_BG = [word for word in sentence if
-                    word.isalpha()]  # removes punctuation and numerical tokens or anything else non alphabetical
-        sentence_BG = [word for word in sentence_BG if word not in english_stopwords] #take out stopwords
+        #sentence_BG = [word for word in sentence if
+        #            word.isalpha()]  # removes punctuation and numerical tokens or anything else non alphabetical
+        #sentence_BG = [word for word in sentence_BG if word not in english_stopwords] #take out stopwords
+        sentence_BG = [word for word in sentence if word not in added_stopwords]
         end_index = len(sentence_BG) - 1  # sub one for use in range- don't want to go beyond end of sentence
         for word_index in range(end_index):  # create 'magic words' bigrams and use indexer utility
             bigram_token = sentence_BG[word_index].lower() + magic + sentence_BG[word_index + 1].lower()
@@ -162,7 +167,7 @@ class BetterFeatureExtractor(FeatureExtractor):
             if token == '!': #improve for use of emotional exclamation
                 token = "exclamation"
             if token.isalpha():  # Retain alphabetic words, removes punctuation
-                if token not in english_stopwords: #remove stopwords, skip if a stop_word
+                if (token not in english_stopwords) and (token not in added_stopwords): #remove stopwords, skip if a stop_word
                     lower_token = token.lower()  # Convert the tokens into lowercase
                     #lower_token = wordnet_lemmatizer.lemmatize(lower_token) #pares words to base/singular form (dogs -> dog)
                     # use utils.py function to get index. if add-To_indexer is FALSE, then in test mode and index lookup is used
@@ -277,7 +282,7 @@ class LogisticRegressionClassifier(SentimentClassifier):
         self.the_indexer = feature_extractor.get_indexer()
         self.prediction = 0
         #need a way to know max index for shaping weights vector
-        #self.weights_vector = np.random.uniform(-1, 1, max(self.feat_extractor.feature_dict, key = int) + 1)
+        #self.weights_vector = np.random.uniform(0, 1, max(self.feat_extractor.feature_dict, key = int) + 1)
         self.weights_vector = np.zeros(max(self.feat_extractor.feature_dict, key = int) + 1)
         self.weight_dot_feat = 0
         self.feat_array = []
@@ -287,7 +292,7 @@ class LogisticRegressionClassifier(SentimentClassifier):
     def update_weights(self, label, prediction, alpha, sentence: List[str]):
         #bow_sent = self.feat_extractor.extract_features(sentence, add_to_indexer=False)
         if label == 1:
-            self.weight_array = self.weight_array + alpha * self.feat_array * (1-self.prediction)
+            self.weight_array = self.weight_array + alpha * 1 * (self.prediction) #can replace 1 eith self.feat_array
             i = 0
             for word_idx in self.bow_dict:
                 if self.the_indexer.index_of(word_idx): #returns None if not in index
@@ -297,7 +302,7 @@ class LogisticRegressionClassifier(SentimentClassifier):
                     self.weights_vector[word_idx] = self.weight_array[i]
                     i += 1
         elif label == 0:
-            self.weight_array = self.weight_array - alpha * self.feat_array * (self.prediction)
+            self.weight_array = self.weight_array - alpha * 1 * (self.prediction) # can replace 1 with self.feat_array
             i = 0
             for word_idx in self.bow_dict:
                 if self.the_indexer.index_of(word_idx):  # returns None if not in index
@@ -349,7 +354,7 @@ def train_perceptron(train_exs: List[SentimentExample], feat_extractor: FeatureE
     """
     alpha = 1  #step_size/ learning rate
     num_epochs = 40
-    random.seed(42) #the answer to life and everything
+    #random.seed(42) #the answer to life and everything
 
 
     for sentence in train_exs: #use train_exs to build feature indexer
@@ -383,8 +388,8 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
     :return: trained LogisticRegressionClassifier model
     """
     alpha = 1  # step_size
-    num_epochs = 40
-    random.seed(42)  # the answer to life and everything
+    num_epochs = 30
+    #random.seed(42)  # the answer to life and everything
 
     for sentence in train_exs:  # use train_exs to build feature indexer
         feat_extractor.extract_features(sentence.words, add_to_indexer=True)  # training mode
@@ -399,9 +404,9 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
             if prediction != label:
                 logistic_model.update_weights(label, prediction, alpha, sentence)
         i = 2
-        if epoch % 4 == 0 and epoch > 0: #check remainder- only update every 10 epochs
+        if epoch % 2 == 0 and epoch > 0: #check remainder- only update every 2 epochs
         #alpha = 1/(alpha**(1/(epoch+1))) #update alpha for next epoch
-            alpha = alpha/i #get smaller every 5th epoch
+            alpha = alpha/i #get smaller every X epoch
             i += 1
             #print("Alpha = ", alpha, " for epoch ", epoch) #debug
 
