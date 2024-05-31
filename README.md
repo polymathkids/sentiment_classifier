@@ -24,17 +24,9 @@ utils.py implements an Indexer class, which can be used to maintain a bijective 
 models.py is the primary file that is modified
 It defines base classes for the FeatureExtractor and the classifiers, and defines train perceptron and train logistic regression methods.
 
-### Part 1: Perceptron
+### Implementation:
 
-Implement unigram perceptron. 
-
-### Part 2: Logistic Regression 
-
-Implement logistic regression.
-
-### Part 3: Features
-
-Implementing a more sophisticated set of feature extractors: BigramFeatureExtractor and BetterFeatureExtractor. Bigram features are indicators on adjacent pairs of words in the text. BetterFeatureExtractor experiemnts with different approaches such as logistic regression, other types of n-grams, tf-idf weighting, clipping word frequencies, discarding rare words, discarding stopwords, etc. The inal code is the result of what I found worked best from those experiments.
+Implement unigram perceptron (from scratch, no packages). Implement logistic regression (from scratch, no package help). Implement a more sophisticated set of feature extractors: BigramFeatureExtractor and BetterFeatureExtractor. Bigram features are indicators on adjacent pairs of words in the text. BetterFeatureExtractor experiemnts with different approaches such as logistic regression, other types of n-grams, tf-idf weighting, clipping word frequencies, discarding rare words, discarding stopwords, etc. The inal code is the result of what I found worked best from those experiments.
 
 ## Command examples
 
